@@ -350,6 +350,18 @@ versions, then stages the package. Both guards run before anything is uploaded.
 
 ### 3. Approve
 
+Approving needs **npm 11.15.0 or later** on your machine, which in turn needs
+**Node 20.17 or later** (`^20.17.0 || >=22.9.0`). This is the maintainer's toolchain,
+unrelated to the Node 16 the package itself supports:
+
+```bash
+npm install -g npm@^11.15.0
+```
+
+Do not use `npm@latest` here. npm 12 requires Node `^22.22 || ^24.15 || >=26`, so on
+an older Node it fails to install rather than falling back — the same trap the release
+workflow pins around.
+
 The upload is staged, not live:
 
 ```bash

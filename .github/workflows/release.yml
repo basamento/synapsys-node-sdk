@@ -33,11 +33,6 @@ jobs:
           node-version: '22.14'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Use an npm new enough for staged trusted publishing
-        run: |
-          npm install -g npm@latest
-          npm --version
-
       # Both guards run before anything is built or uploaded: a bad tag should
       # cost seconds, not a publish that cannot be taken back.
       - name: Tag must be on main
@@ -69,6 +64,26 @@ jobs:
           node-version: '22.14'
           registry-url: 'https://registry.npmjs.org'
       - run: node --test test/
+
+      # Installed here, after the last setup-node, and not before the guards.
+      # Switching Node versions swaps the npm on PATH, so an npm installed earlier
+      # in the job is gone by the time the publish runs — and the bundled npm on
+      # Node 22.14 is 10.x, which has no `npm stage` at all.
+      #
+      # Pinned to a major rather than @latest: npm 12 raised its own engine
+      # requirement to Node ^22.22 || ^24.15 || >=26, so @latest stops installing
+      # the day a new npm major lands. On a release workflow that surfaces as a
+      # failed publish, not a failed test. npm 11.x covers what is needed here —
+      # trusted publishing from 11.5.1, `npm stage` from 11.15.0.
+      - name: Use an npm new enough for staged trusted publishing
+        run: |
+          npm install -g npm@^11.15.0
+          node --version
+          npm --version
+          npm stage --help > /dev/null || {
+            echo "::error::This npm has no 'stage' command; staged publishing is unavailable."
+            exit 1
+          }
 
       # Staged, not published. npm's unpublish window is 72 hours and restricted
       # after that, so a mistake made live is effectively permanent — the approval
