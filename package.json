@@ -1,0 +1,55 @@
+{
+  "name": "@synapsys-io/sdk",
+  "version": "0.1.0",
+  "description": "Register a Node.js application as a Synapsys worker, and let Synapsys Core start and stop its background processes remotely.",
+  "license": "Apache-2.0",
+  "author": "Julian Marzoli",
+  "homepage": "https://github.com/basamento/synapsys-node-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/basamento/synapsys-node-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/basamento/synapsys-node-sdk/issues"
+  },
+  "keywords": [
+    "synapsys",
+    "worker",
+    "background-jobs",
+    "control-plane",
+    "heartbeat",
+    "process-management"
+  ],
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./index.js",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "lib/",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "sideEffects": false
+}

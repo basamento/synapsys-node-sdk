@@ -1,0 +1,8 @@
+node_modules/
+*.tgz
+npm-debug.log*
+.npmrc
+.DS_Store
+.idea/
+.vscode/
+coverage/

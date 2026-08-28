@@ -1,0 +1,79 @@
+name: CI
+
+# Runs on main and on pull requests only. Triggering on every branch push as
+# well would double the minutes spent on any branch that has a PR open.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'LICENSE', 'NOTICE']
+  pull_request:
+    paths-ignore: ['**.md', 'LICENSE', 'NOTICE']
+
+permissions:
+  contents: read
+
+# Superseded runs are cancelled rather than left to finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest entry is the version declared in `engines`. Claiming support
+        # for a runtime nothing ever runs the suite on is how a package ends up
+        # broken for exactly the legacy applications it was written for.
+        node: ['16.20.2', '18', '20', '22', '24']
+    name: test (node ${{ matrix.node }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      # There are no dependencies to install, so there is nothing to cache.
+      - run: node --test test/
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      # The tarball is what users actually get. A file missing from `files` breaks
+      # the published package while every test still passes locally.
+      - name: Pack and install the tarball into a clean CommonJS application
+        run: |
+          npm pack
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y > /dev/null
+          npm install "$GITHUB_WORKSPACE"/synapsys-io-sdk-*.tgz
+          cat > check.cjs <<'EOF'
+          const { Synapsys } = require('@synapsys-io/sdk');
+          const s = new Synapsys({ enabled: false, workerName: 'ci' });
+          s.endless('poller', async (stop) => { await stop.sleep('1s'); });
+          s.start().then(() => {
+            if (s.processes.length !== 1) throw new Error('registration failed');
+            console.log('CommonJS require() ok');
+          });
+          EOF
+          node check.cjs
+
+      - name: Install the same tarball into a clean ESM application
+        run: |
+          cd /tmp/consumer
+          cat > check.mjs <<'EOF'
+          import { Synapsys } from '@synapsys-io/sdk';
+          const s = new Synapsys({ enabled: false, workerName: 'ci' });
+          s.progressive('report', async () => {});
+          await s.start();
+          if (s.processes.length !== 1) throw new Error('registration failed');
+          console.log('ESM import ok');
+          EOF
+          node check.mjs

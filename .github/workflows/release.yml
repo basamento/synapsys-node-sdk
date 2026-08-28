@@ -1,0 +1,97 @@
+name: Release
+
+# Releases are cut by pushing a tag. package.json is the source of truth for the
+# version; the tag must agree with it.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Required for trusted publishing. npm mints a short-lived credential from
+      # this OIDC token, so no NPM_TOKEN secret has to exist in the repository.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          # Trusted publishing needs npm CLI >= 11.5.1, and staged publishing
+          # >= 11.15.0, which in turn need Node >= 22.14. This is the version the
+          # release runs on, not the version the package supports.
+          node-version: '22.14'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Use an npm new enough for staged trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      # Both guards run before anything is built or uploaded: a bad tag should
+      # cost seconds, not a publish that cannot be taken back.
+      - name: Tag must be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tagged commit $GITHUB_SHA is not reachable from main."
+            exit 1
+          fi
+
+      - name: Tag must match the package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG package.json=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PKG. Bump the version, or retag."
+            exit 1
+          fi
+
+      - name: Test on the minimum supported Node version
+        uses: actions/setup-node@v6
+        with:
+          node-version: '16.20.2'
+      - run: node --test test/
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.14'
+          registry-url: 'https://registry.npmjs.org'
+      - run: node --test test/
+
+      # Staged, not published. npm's unpublish window is 72 hours and restricted
+      # after that, so a mistake made live is effectively permanent — the approval
+      # step is the only thing standing between a tag push and that.
+      #
+      # Provenance is deliberately not requested: npm can only attest a public
+      # repository, and this one is private.
+      - name: Stage the release on npm
+        run: npm stage publish
+
+      - name: Next step
+        run: |
+          {
+            echo "### Staged on npm"
+            echo ""
+            echo "\`$GITHUB_REF_NAME\` is staged, not live. Review and approve it:"
+            echo ""
+            echo '```bash'
+            echo "npm stage list"
+            echo "npm stage view <stage-id>"
+            echo "npm stage approve <stage-id>   # prompts for 2FA, then goes live"
+            echo '```'
+            echo ""
+            echo "Or \`npm stage reject <stage-id>\` to discard it. A rejected version"
+            echo "number can be reused; a published one never can."
+          } >> "$GITHUB_STEP_SUMMARY"
