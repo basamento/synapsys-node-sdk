@@ -79,7 +79,8 @@ test('output is captured only inside a scope', async function () {
     });
     assert.strictEqual(capture.size, 1);
     assert.strictEqual(capture.queue[0].processName, 'poller');
-    assert.strictEqual(capture.queue[0].runId, 42);
+    // Carried as an exact decimal string; Core's runId is an int64.
+    assert.strictEqual(capture.queue[0].runId, '42');
 
     // Both lines still reached the real stream, in order.
     assert.strictEqual(out.written.length, 2);
@@ -118,7 +119,7 @@ test('two concurrent processes do not interleave their captured lines', async fu
 
     assert.deepStrictEqual(alpha.map(function (e) { return e.message; }), ['alpha-1', 'alpha-2']);
     assert.deepStrictEqual(beta.map(function (e) { return e.message; }), ['beta-1', 'beta-2']);
-    assert.deepStrictEqual(alpha.map(function (e) { return e.runId; }), [1, 1]);
+    assert.deepStrictEqual(alpha.map(function (e) { return e.runId; }), ['1', '1']);
     // Sequence is monotonic per run, not global.
     assert.deepStrictEqual(beta.map(function (e) { return e.sequence; }), [1, 2]);
   });

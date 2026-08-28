@@ -288,7 +288,7 @@ test('runId is tracked even when the token is already acknowledged', function ()
   built.process.acknowledge(2);
 
   built.process.acceptCommand('running', 2, 222); // same token, new run id
-  assert.strictEqual(built.process.runId, 222);
+  assert.strictEqual(built.process.runId, '222');
 });
 
 test('a missing desiredToken is treated as no command', function () {
@@ -307,6 +307,6 @@ test('the heartbeat entry carries exactly what the protocol requires', function 
     type: 'progressive',
     currentState: 'idle',
     ackToken: 3,
-    runId: 99
+    runId: '99'
   });
 });

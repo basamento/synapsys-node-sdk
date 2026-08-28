@@ -145,7 +145,14 @@ export interface RegisteredProcess {
   readonly type: ProcessType;
   readonly currentState: ProcessState;
   readonly ackToken: number;
-  readonly runId: number | null;
+  /**
+   * The Core-assigned run identifier, as an exact decimal string.
+   *
+   * It is an int64 generated from the wall clock in nanoseconds, which exceeds
+   * `Number.MAX_SAFE_INTEGER` — so it is carried as a string rather than a number,
+   * and echoed back to Core unchanged. Treat it as an opaque token.
+   */
+  readonly runId: string | null;
 }
 
 /**
