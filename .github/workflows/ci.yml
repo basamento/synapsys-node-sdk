@@ -35,7 +35,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       # There are no dependencies to install, so there is nothing to cache.
-      - run: node --test test/
+      - run: node --test
 
   package:
     runs-on: ubuntu-latest

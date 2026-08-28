@@ -1,6 +1,6 @@
 {
   "name": "@synapsys-io/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Register a Node.js application as a Synapsys worker, and let Synapsys Core start and stop its background processes remotely.",
   "license": "Apache-2.0",
   "author": "Julian Marzoli",
@@ -47,7 +47,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {},
   "devDependencies": {},

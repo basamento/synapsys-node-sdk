@@ -57,13 +57,13 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '16.20.2'
-      - run: node --test test/
+      - run: node --test
 
       - uses: actions/setup-node@v6
         with:
           node-version: '22.14'
           registry-url: 'https://registry.npmjs.org'
-      - run: node --test test/
+      - run: node --test
 
       # Installed here, after the last setup-node, and not before the guards.
       # Switching Node versions swaps the npm on PATH, so an npm installed earlier
@@ -80,8 +80,10 @@ jobs:
           npm install -g npm@^11.15.0
           node --version
           npm --version
-          npm stage --help > /dev/null || {
-            echo "::error::This npm has no 'stage' command; staged publishing is unavailable."
+          # `npm stage` with no subcommand exits EUSAGE even when it exists, so the
+          # probe has to name the subcommand actually used below.
+          npm stage publish --help > /dev/null || {
+            echo "::error::This npm has no 'npm stage publish'; staged publishing is unavailable."
             exit 1
           }
 

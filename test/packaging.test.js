@@ -43,6 +43,44 @@ test('every file the exports map points at is published and present', function (
   }
 });
 
+test('the published README carries no release or infrastructure detail', function () {
+  // npm renders README.md on the public package page, unlike Maven Central. Release
+  // process, the publishing workflow and the trusted-publisher configuration name
+  // exactly what a supply-chain attack would target, and no consumer of the package
+  // needs any of it. It lives in RELEASING.md, which `files` excludes.
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+  const forbidden = [
+    'Releasing (maintainers)',
+    'Trusted publishing',
+    'trusted publisher',
+    'npm stage approve',
+    'npm stage publish',
+    'release.yml',
+    'Repository secrets',
+    'First-time setup'
+  ];
+  const found = forbidden.filter(function (needle) {
+    return readme.toLowerCase().indexOf(needle.toLowerCase()) !== -1;
+  });
+  assert.deepStrictEqual(
+    found, [],
+    'README.md is published publicly on npm and must not contain: ' + found.join(', ')
+  );
+});
+
+test('RELEASING.md exists and is excluded from the published package', function () {
+  const root = path.join(__dirname, '..');
+  assert.ok(
+    fs.existsSync(path.join(root, 'RELEASING.md')),
+    'the maintainer guide should exist in the repository'
+  );
+  // `files` is an allowlist, so absence is what keeps it out of the tarball.
+  assert.strictEqual(
+    packageJson.files.indexOf('RELEASING.md'), -1,
+    'RELEASING.md must never be added to files'
+  );
+});
+
 test('the package declares no dependencies', function () {
   // Every transitive dependency is a potential conflict in someone else's build,
   // and a conflict at that layer is a reason not to adopt.
