@@ -127,6 +127,17 @@ export interface SynapsysOptions {
   requestTimeout?: Duration;
 
   /**
+   * How long `stop()` waits for running processes to become terminal before it
+   * gives up, reports them, and finishes shutting down. Default `'10s'`.
+   * Env: `SYNAPSYS_SHUTDOWN_TIMEOUT`.
+   *
+   * Business logic that ignores cancellation is never killed: the library cannot
+   * safely do that. It is reported and left running, and no replacement execution
+   * can overlap it.
+   */
+  shutdownTimeout?: Duration;
+
+  /**
    * Stream process console output to Core. Default `true`. Setting it to `false`
    * leaves `process.stdout.write` untouched. Env: `SYNAPSYS_CAPTURE_CONSOLE`.
    */
@@ -184,8 +195,18 @@ export class Synapsys {
    */
   start(): Promise<this>;
 
-  /** Stops the loop, restores the console streams, asks processes to stop. */
-  stop(): Promise<this>;
+  /**
+   * Shuts the worker down, cooperatively and within a bounded budget.
+   *
+   * Stops the heartbeat loop, asks every running process to stop, waits up to
+   * `shutdownTimeout` (or `options.timeout`) for them to become terminal, sends one
+   * best-effort final heartbeat with the final states and any queued logs, and
+   * restores the console streams. The final response's commands are ignored:
+   * shutdown never starts new work.
+   *
+   * Idempotent and non-throwing. Concurrent callers share one shutdown.
+   */
+  stop(options?: { timeout?: Duration }): Promise<this>;
 }
 
 /** Thrown for a malformed or missing option, including an unrecognised one. */

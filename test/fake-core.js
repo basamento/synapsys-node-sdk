@@ -14,6 +14,8 @@ class FakeCore {
     this.healthStatus = 200;
     this.heartbeatStatus = 200;
     this.extraResponseFields = {};
+    /** When set, the heartbeat answers 200 with this exact body instead of JSON. */
+    this.rawHeartbeatBody = null;
     /** Milliseconds to hold a heartbeat before answering. Does not block the loop. */
     this.responseDelayMs = 0;
     /** Logs from beats that were actually accepted. A rejected beat stores nothing. */
@@ -57,6 +59,14 @@ class FakeCore {
 
           if (parsed && Array.isArray(parsed.logs)) {
             for (const entry of parsed.logs) self.acceptedLogs.push(entry);
+          }
+
+          // A 2xx that is not a readable HeartbeatResponse: an empty body, a
+          // truncated one, or an HTML error page from a proxy in between.
+          if (self.rawHeartbeatBody !== null) {
+            response.writeHead(200, { 'Content-Type': 'application/json' });
+            response.end(self.rawHeartbeatBody);
+            return;
           }
 
           const processes = [];

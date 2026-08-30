@@ -299,8 +299,12 @@ test('a missing desiredToken is treated as no command', function () {
 
 test('the heartbeat entry carries exactly what the protocol requires', function () {
   const built = build(ProgressiveProcess, async function () {});
-  built.process.acceptCommand('running', 3, 99);
+  // A start adopts the run id when the handler accepts it, not when the command is
+  // decoded: a deferred start must leave the previous run's id in place.
+  const decision = built.process.acceptCommand('running', 3, 99);
+  built.process.handleStart(decision.runId);
   built.process.acknowledge(3);
+  built.process.currentState = 'idle';
 
   assert.deepStrictEqual(built.process.toHeartbeatEntry(), {
     name: 'p',

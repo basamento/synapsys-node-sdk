@@ -7,13 +7,25 @@ Your application declares processes by handing the SDK a function. It reports th
 Core on a heartbeat, receives start/stop commands on the response, and runs them.
 Workers never accept inbound connections — everything rides one outbound POST.
 
-## Requirements
+## Compatibility
 
-- Node.js 16 or later
-- CommonJS or ESM; both are shipped, and no build step is needed for either
-- A reachable Synapsys Core instance and a worker token
+| | |
+| --- | --- |
+| Runtime | Node.js 16 or later (tested on 16, 18, 20, 22, 24) |
+| Module systems | CommonJS and ESM, both shipped; no build step for either |
+| Runtime dependencies | none |
+| Framework identifier sent to Core | `nodejs` |
+| Core | any version serving `GET /api/health` and `POST /api/v1/workers/heartbeat` |
 
-Zero runtime dependencies.
+You also need a reachable Synapsys Core instance and a worker token.
+
+This SDK implements the shared Synapsys client-library specification, which every
+official client library follows so that they behave like one product rather than
+several interpretations of it:
+
+- `synapsys-docs/CLIENT_LIBRARY_SPEC.md` — the normative client contract
+- `synapsys-docs/content/manuals/raw-api/checklist.md` — the wire-protocol checklist
+- `openapi.yaml` in the Core repository — the machine-readable contract
 
 ## Install
 
@@ -187,6 +199,30 @@ Note that **this transmits process output to Core**, including anything you prin
 Turn it off with `captureConsole: false`, which leaves `process.stdout.write`
 completely untouched.
 
+### Limits you should know about
+
+Console capture works by replacing `process.stdout.write` and `process.stderr.write`
+with tees. That is a **process-wide** change, and it comes with boundaries worth
+stating plainly:
+
+- **One capture at a time.** The first `Synapsys` instance to start owns the streams;
+  a second instance in the same process does not patch them again.
+- **Only what goes through those methods is captured.** A logger writing to a file
+  descriptor directly, or to its own destination stream, bypasses the tee.
+- **Something patched on top of us is never clobbered.** On shutdown the original
+  methods are restored only if they are still the ones we installed; otherwise they
+  are left alone, and the wrapper keeps working.
+- **Bounded, and drops oldest.** At most 10,000 queued lines, 16,000 characters per
+  line, and 100 entries or 96 KB of UTF-8 per heartbeat. A runaway loop loses its
+  oldest lines rather than the application's memory.
+- **The SDK's own log lines are never captured.** They are written through pristine
+  handles taken before the patch, so the library cannot feed its own output back to
+  Core or recurse through its own tee.
+- **Blank lines and lines with no run id are dropped**, because Core cannot store
+  them.
+- **Nothing is captured when `captureConsole` or `enabled` is `false`**, and nothing
+  after `stop()` has restored the streams.
+
 ## Settings
 
 Every setting can be passed in the options object or set in the environment. The
@@ -203,6 +239,7 @@ options object wins.
 | `failFast` | `SYNAPSYS_FAIL_FAST` | `false` | Reject `start()` when Core is unreachable at startup. |
 | `connectTimeout` | `SYNAPSYS_CONNECT_TIMEOUT` | `'2s'` | TCP connect timeout. |
 | `requestTimeout` | `SYNAPSYS_REQUEST_TIMEOUT` | `'5s'` | Whole-request timeout. |
+| `shutdownTimeout` | `SYNAPSYS_SHUTDOWN_TIMEOUT` | `'10s'` | How long `stop()` waits for running processes to become terminal. |
 | `captureConsole` | `SYNAPSYS_CAPTURE_CONSOLE` | `true` | Stream process console output to Core. |
 | `logLevel` | `SYNAPSYS_LOG_LEVEL` | `'info'` | One of `debug`, `info`, `warn`, `error`, `silent`. |
 | `logger` | — | built-in | Send the SDK's own log lines to your logger. |
@@ -242,8 +279,32 @@ logs. A healthy worker is silent between startup and shutdown: nothing is logged
 
 ## Shutdown
 
-`synapsys.stop()` stops the loop, restores the console streams and asks every running
-process to stop. It is idempotent and never throws.
+`await synapsys.stop()` runs a bounded cooperative shutdown, in this order:
+
+1. the heartbeat loop stops, and no further beat can start;
+2. every running process is asked to stop, and its `AbortSignal` is aborted;
+3. the SDK waits up to `shutdownTimeout` for them to become terminal;
+4. **one** best-effort final heartbeat is sent, carrying the final process states
+   and whatever log lines are still queued;
+5. the console streams are restored and the sockets are released.
+
+The final heartbeat's response is **ignored**: shutdown never starts new work, even
+if Core has a start command outstanding. If it fails, times out, or the budget is
+already exhausted, that is logged at `debug` and shutdown continues — a transport
+problem never fails or extends your application's shutdown.
+
+Pass a different budget for one call with `stop({ timeout: '30s' })`. The final
+heartbeat is additionally bounded by `requestTimeout`, and by whatever is left of
+the budget, whichever is smaller.
+
+`stop()` is **idempotent and never throws**. Concurrent callers share one shutdown,
+and exactly one final heartbeat is sent however many times you call it.
+
+**Business logic that ignores cancellation is never killed.** Node cannot safely
+pull a running function out from under itself, so a body that does not observe its
+stop signal stays alive past the budget. The SDK logs a warning naming the process,
+keeps observing it, and refuses to start a replacement execution over the top of it.
+The decision to wait longer or exit is your application's.
 
 Wire it to your own signal handling — the SDK does not install handlers of its own,
 because that would change how your application behaves:
@@ -258,6 +319,36 @@ process.on('SIGTERM', async () => {
 The heartbeat timer keeps the event loop alive, which is what you want in a worker.
 In a short-lived script it means the process will not exit until `stop()` is called.
 
+## Lifecycle semantics
+
+Core owns the desired state; this SDK owns the transition. Every command carries a
+token, and the token is acknowledged **only after** the local handler has accepted
+it, so anything unacknowledged is redelivered on a later beat.
+
+| Situation | What happens |
+| --- | --- |
+| `desiredState: 'idle'` | No outstanding command. Never a stop. |
+| A start for a process already running | Idempotent no-op, acknowledged. The active `runId` is not reassigned. |
+| A stop for a process that is not running | Idempotent no-op, acknowledged. |
+| **A start while the previous run is still stopping** | **Deferred.** Not acknowledged, and the old run's `runId` is kept. Core redelivers it; it is applied once the old run is terminal. |
+| A command handler that throws | Logged, the process is marked `failed`, the token stays unacknowledged, and the other processes on that beat are unaffected. |
+| A duplicate or stale token | Ignored. |
+
+Deferring a start is the difference between a run that happens a few seconds late
+and a run that never happens at all: acknowledging it as a no-op would tell Core the
+command was carried out when nothing ran.
+
+`running` is set **synchronously**, before the body is scheduled, so a second start
+arriving in the same tick cannot observe `idle` and spawn a duplicate.
+
+## Cancellation
+
+A stop aborts the run's `AbortSignal` and sets `stop.requested`. Returning from the
+body — or throwing that run's `StopRequested`, or an `AbortError` raised by I/O you
+handed the signal to — is a **clean stop, not a failure**: the process goes back to
+`idle` and nothing is logged as an error. An `AbortError` arriving while no stop is
+outstanding is a genuine failure and lands the process in `failed`.
+
 ## Failure behaviour
 
 - **Core being unreachable never stops a process.** The worker keeps running and keeps
@@ -266,6 +357,14 @@ In a short-lived script it means the process will not exit until `stop()` is cal
   normal case, not an error. Set `failFast: true` and `await synapsys.start()` if you
   want the opposite.
 - **The heartbeat loop cannot die.** Nothing escapes a tick.
+- **Heartbeats never overlap and never burst.** The next beat is scheduled after the
+  previous one settles, so a Core that answers slower than one interval delays the
+  loop rather than queueing a catch-up storm against a service that has just
+  recovered.
+- **A 2xx response that is not a readable heartbeat response is a failure.** An empty
+  or unparseable body means the beat delivered no commands, so the drained log lines
+  are requeued at the front of the queue and nothing is acknowledged. Unknown *fields*
+  are still ignored: Core is versioned independently of this SDK.
 - **Your exceptions never reach the library.** A process whose body throws is recorded
   as `failed`, the stack trace is sent to Core as process output, and the error is
   logged — never rethrown into your application.
