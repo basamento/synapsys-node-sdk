@@ -383,3 +383,5 @@ does not even require `coreUrl` or `workerName` in that state.
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+
+Copyright 2026 Julian Marzoli (Basamento).
